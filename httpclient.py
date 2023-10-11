@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # coding: utf-8
-# Copyright 2016 Abram Hindle, https://github.com/tywtyw2002, and https://github.com/treedust
+# Copyright 2016 Abram Hindle, https://github.com/tywtyw2002, https://github.com/treedust, and Chris Wen
 # 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -20,7 +20,6 @@
 
 import sys
 import socket
-import re
 # you may use urllib to encode data appropriately
 import urllib.parse
 
@@ -41,12 +40,18 @@ class HTTPClient(object):
         return None
 
     def get_code(self, data):
+        if data:
+            return int(data.split()[1])
         return None
 
     def get_headers(self,data):
+        if data:
+            return data.split('\r\n')[:-1]
         return None
 
     def get_body(self, data):
+        if data:
+            return data.split('\r\n')[-1]
         return None
     
     def sendall(self, data):
@@ -67,14 +72,69 @@ class HTTPClient(object):
                 done = not part
         return buffer.decode('utf-8')
 
+######################################################################################################################################################
+# Function Purpose: Parses the url provided for the host, port, and path
+# Returns: - Host: The url hostname
+#          - Port: The url port
+#          - Path: The url path
+######################################################################################################################################################
+    def parseUrl(self, url):
+        parsedUrl = urllib.parse.urlparse(url)
+
+        if parsedUrl.hostname:
+            host = parsedUrl.hostname
+
+        if parsedUrl.port:
+            port = parsedUrl.port
+        elif parsedUrl.scheme == 'http':
+            port = 80
+        elif parsedUrl.scheme == 'https':
+            port = 443
+
+        if parsedUrl.path:
+            path = f'{parsedUrl.path}'
+            if parsedUrl.query:
+                path += f'?{parsedUrl.query}'
+            if parsedUrl.fragment:
+                path += f'#{parsedUrl.fragment}'
+        else:
+            path = '/'
+
+        return host, port, path
+
+######################################################################################################################################################
+# Function Purpose: Sends the request then receives the data, and parses the data for the HTTP code and the HTTP body.
+# Returns: - Code: The HTTP code
+#          - Body: The HTTP body
+######################################################################################################################################################
+    def getContent(self, host, port, request):
+        self.connect(host, port)
+        self.sendall(request)
+        data = self.recvall(self.socket)
+        self.close()
+        code = self.get_code(data)
+        body = self.get_body(data)
+        return code, body
+
     def GET(self, url, args=None):
-        code = 500
-        body = ""
+        host, port, path = self.parseUrl(url)
+        request = f'GET {path} HTTP/1.1\r\nHost: {host}\r\nAccept: */*\r\nConnection: close\r\n\r\n'
+        code, body = self.getContent(host, port, request)
         return HTTPResponse(code, body)
 
     def POST(self, url, args=None):
-        code = 500
-        body = ""
+        host, port, path = self.parseUrl(url)
+        request = f'POST {path} HTTP/1.1\r\nHost: {host}\r\nAccept: */*\r\n'
+        if args:
+            parsedArgs = urllib.parse.urlencode(args)
+            request += 'Content-Type: application/x-www-urlencoded\r\n'
+            request += f'Content-Length: {len(parsedArgs.encode("utf-8"))}\r\n'
+        else:
+            request += 'Content-Length: 0\r\n'
+        request += f'Connection: close\r\n\r\n'
+        if args:
+            request += parsedArgs
+        code, body = self.getContent(host, port, request)
         return HTTPResponse(code, body)
 
     def command(self, url, command="GET", args=None):
